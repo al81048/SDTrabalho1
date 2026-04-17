@@ -17,6 +17,7 @@ namespace GatewayApp
 
         // Caminho relativo para funcionar em qualquer computador
         //PARA TESTAR, MUDAR PARA O CAMINHO DO MEU PC
+        //private static string csvPath = @"C:\Users\Utilizador\Desktop\config.csv";
         private static string csvPath = "config.csv";
 
         private static string serverIP = "127.0.0.1";
@@ -24,7 +25,7 @@ namespace GatewayApp
 
         static void Main(string[] args)
         {
-            Console.WriteLine("=== GATEWAY ONE HEALTH (Versão CSV) ===");
+            Console.WriteLine("=== GATEWAY ONE HEALTH ===");
 
             // Inicia o servidor para ouvir Sensores na porta 5000 (Aula 2)
             TcpListener listener = new TcpListener(IPAddress.Any, 5000);
@@ -169,3 +170,4 @@ namespace GatewayApp
         }
     }
 }
+

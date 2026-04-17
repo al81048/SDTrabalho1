@@ -1,55 +1,4 @@
-﻿/*using System;
-using System.Net.Sockets;
-using System.Text;
-
-namespace SensorApp
-{
-    class Program
-    {
-        static void Main(string[] args)
-        {
-            Console.WriteLine("=== SENSOR BÁSICO ===");
-
-            // O enunciado pede para receber o IP do Gateway como parâmetro inicial
-            Console.Write("Introduza o IP da Gateway (escreve 127.0.0.1 e carrega Enter): ");
-            string ipGateway = Console.ReadLine();
-
-            try
-            {
-                // 1. CONECTAR ao servidor (Gateway) na porta 5000
-                TcpClient client = new TcpClient(ipGateway, 5000);
-                Console.WriteLine("Conectado à Gateway com sucesso!");
-
-                // 2. ENVIAR DADOS (A nossa mensagem de protocolo)
-                // Vamos simular que este é o sensor S101 que mede Temperatura
-                string mensagem = "HELLO|S101|TEMP";
-
-                // Os sockets só entendem "Bytes", por isso convertemos o texto
-                byte[] data = Encoding.UTF8.GetBytes(mensagem);
-                NetworkStream stream = client.GetStream();
-
-                // Escreve os bytes no "tubo" da rede
-                stream.Write(data, 0, data.Length);
-                Console.WriteLine($"Mensagem enviada: {mensagem}");
-
-                // 3. DESCONECTAR
-                stream.Close();
-                client.Close();
-                Console.WriteLine("Comunicação terminada e Sensor desligado.");
-            }
-            catch (Exception ex)
-            {
-                // Se o Gateway não estiver a correr, o programa cai aqui
-                Console.WriteLine($"Erro ao tentar ligar: {ex.Message}");
-            }
-
-            Console.WriteLine("Pressiona Enter para sair.");
-            Console.ReadLine();
-        }
-    }
-}
-*/
-//sensor desenvolvido
+﻿//sensor desenvolvido
 using System;
 using System.Net.Sockets;
 using System.Text;
@@ -63,8 +12,9 @@ namespace SensorApp
         static TcpClient client;
         static NetworkStream stream;
         static string sensorId;
+        static string tiposDados; // Guardado a nível de classe para a validação poder ler
         static bool aTrabalhar = true;
-        
+
         // Mutex da Aula 3 para proteger o envio de dados
         static Mutex socketMutex = new Mutex();
 
@@ -80,7 +30,7 @@ namespace SensorApp
             Console.Write("ID deste Sensor (ex: S101): ");
             sensorId = Console.ReadLine();
             Console.Write("Tipos de dados suportados (ex: TEMP,RUIDO): ");
-            string tiposDados = Console.ReadLine();
+            tiposDados = Console.ReadLine();
 
             try
             {
@@ -110,11 +60,20 @@ namespace SensorApp
                     {
                         Console.Write("Tipo de dado (ex: TEMP): ");
                         string tipo = Console.ReadLine();
-                        Console.Write("Valor (ex: 25.4): ");
-                        string valor = Console.ReadLine();
-                        
-                        // REQUISITO 4: Enviar medições
-                        EnviarMensagem($"DATA|{sensorId}|{tipo}|{valor}");
+
+                        // MELHORIA 1: Validação! Verifica se o tipo introduzido está na lista autorizada
+                        if (tiposDados.Contains(tipo))
+                        {
+                            Console.Write("Valor (ex: 25.4): ");
+                            string valor = Console.ReadLine();
+
+                            // REQUISITO 4: Enviar medições
+                            EnviarMensagem($"DATA|{sensorId}|{tipo}|{valor}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"\n[AVISO] Tipo de dado inválido! Este sensor só suporta: {tiposDados}");
+                        }
                     }
                     else if (opcao == "2")
                     {
@@ -123,14 +82,20 @@ namespace SensorApp
                     }
                     else if (opcao == "0")
                     {
-                        aTrabalhar = false;
+                        aTrabalhar = false; // Avisa o ciclo do Menu e o ciclo do Heartbeat para pararem
                         EnviarMensagem($"QUIT|{sensorId}");
+
+                        Console.WriteLine("\nA encerrar o sensor em segurança. A aguardar a paragem do Heartbeat...");
+
+                        // MELHORIA 2: Espera educadamente que a Thread do Heartbeat termine antes de fechar a rede
+                        threadHeartbeat.Join();
                     }
                 }
 
                 // REQUISITO 7: Terminar comunicação corretamente
                 stream.Close();
                 client.Close();
+                Console.WriteLine("[+] Sensor desligado com sucesso.");
             }
             catch (Exception ex)
             {
@@ -161,8 +126,9 @@ namespace SensorApp
             while (aTrabalhar)
             {
                 // Espera 10 segundos
-                Thread.Sleep(10000); 
-                
+                Thread.Sleep(10000);
+
+                // Antes de enviar o PING, confirma se o programa ainda está a trabalhar
                 if (aTrabalhar)
                 {
                     EnviarMensagem($"PING|{sensorId}");
