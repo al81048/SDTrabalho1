@@ -1,6 +1,4 @@
-﻿//gateway desenvolvido
-//gateway sem base de dados, utilizando mutexes e ficheiro csv
-using System;
+﻿using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -15,10 +13,8 @@ namespace GatewayApp
         // Mutex para proteger a leitura e escrita no ficheiro config.csv (Aula 3)
         private static Mutex csvMutex = new Mutex();
 
-        // Caminho relativo para funcionar em qualquer computador
-        //PARA TESTAR, MUDAR PARA O CAMINHO DO MEU PC
-        //private static string csvPath = @"C:\Users\Utilizador\Desktop\config.csv";
-        private static string csvPath = "config.csv";
+        // Caminho do ficheiro (Lembra-te da nota importante abaixo sobre a entrega!)
+        private static string csvPath = @"C:\Users\Utilizador\Desktop\config.csv";
 
         private static string serverIP = "127.0.0.1";
         private static int serverPort = 9000;
@@ -112,8 +108,8 @@ namespace GatewayApp
 
                 foreach (string linha in linhas)
                 {
-                    // Formato CSV esperado: sensor_id:estado:zona:[tipos]:last_sync
-                    string[] campos = linha.Split(':');
+                    // A NOSSA GRANDE ALTERAÇÃO: O limite de 5 partes salva a data de ser cortada!
+                    string[] campos = linha.Split(':', 5);
 
                     if (campos.Length >= 5 && campos[0] == id)
                     {
@@ -170,4 +166,3 @@ namespace GatewayApp
         }
     }
 }
-
