@@ -1,100 +1,4 @@
-﻿/*/
-//servidor utilizando csv
-using System;
-using System.IO;
-using System.Net;
-using System.Net.Sockets;
-using System.Text;
-using System.Threading;
-
-namespace Servidor
-{
-    class Program
-    {
-        // Mutex para garantir o acesso sequencial à escrita de ficheiros (Aula 3)
-        private static Mutex mutex = new Mutex();
-
-        static void Main(string[] args)
-        {
-            TcpListener listener = new TcpListener(IPAddress.Any, 9000);
-            listener.Start();
-            Console.WriteLine("=== SERVIDOR INICIADO ===");
-            Console.WriteLine("A escutar na porta 9000 por conexões de Gateways...");
-
-            while (true)
-            {
-                // Aceita as conexões e cria uma Thread para lidar com múltiplos Gateways em simultâneo
-                TcpClient client = listener.AcceptTcpClient();
-                Console.WriteLine($"\n[Nova Conexão] Gateway conectado: {client.Client.RemoteEndPoint}");
-
-                Thread gatewayThread = new Thread(() => HandleGateway(client));
-                gatewayThread.Start();
-            }
-        }
-
-        static void HandleGateway(TcpClient client)
-        {
-            NetworkStream stream = client.GetStream();
-            byte[] buffer = new byte[1024];
-
-            try
-            {
-                while (true)
-                {
-                    int bytesRead = stream.Read(buffer, 0, buffer.Length);
-                    if (bytesRead == 0) break; // O Gateway desconectou-se
-
-                    string message = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    Console.WriteLine($"[Recebido] {message}");
-
-                    // Protocolo esperado: DATA|SENSOR_ID|TIPO_DADO|VALOR|...
-                    string[] parts = message.Split('|');
-
-                    // PROTEÇÃO APLICADA: Garantir que existem pelo menos 3 partes antes de ler o parts[2]
-                    if (parts.Length >= 3 && parts[0] == "DATA")
-                    {
-                        string tipoDado = parts[2]; // Ex: TEMP, RUIDO, PM2.5
-                        GuardarDados(tipoDado, message);
-                    }
-                    else if (parts[0] == "DATA" && parts.Length < 3)
-                    {
-                        // Se diz que é DATA mas não tem as partes todas, avisa na consola
-                        Console.WriteLine("[AVISO] Mensagem ignorada por formato inválido ou incompleta.");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Erro de Conexão] {ex.Message}");
-            }
-            finally
-            {
-                client.Close();
-                Console.WriteLine("[Desconexão] Um Gateway desligou-se.");
-            }
-        }
-
-        static void GuardarDados(string tipoDado, string linhaData)
-        {
-            // Protege o acesso ao ficheiro de texto usando o Mutex
-            mutex.WaitOne();
-            try
-            {
-                string fileName = $"{tipoDado}.txt";
-                // AppendAllText cria o ficheiro se não existir, ou adiciona no fim se já existir
-                File.AppendAllText(fileName, linhaData + Environment.NewLine);
-            }
-            finally
-            {
-                // O bloco finally garante que o Mutex é libertado, mesmo que a escrita no ficheiro dê erro
-                mutex.ReleaseMutex();
-            }
-        }
-    }
-}*/
-
-// servidor utilizando base de dados
-using System;
+﻿using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -139,7 +43,7 @@ namespace ServidorCentral
                 if (bytesRead > 0)
                 {
                     string msg = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    Console.WriteLine($"[Recebido do Gateway]: {msg}");
+                    Console.WriteLine($"\n[Recebido do Gateway]: {msg}");
 
                     ProcessarMensagem(msg);
                 }
@@ -156,6 +60,7 @@ namespace ServidorCentral
             string comando = parts[0];
             string sensorId = parts[1];
 
+            // necessário este mutex porque o sqlite não é thread-safe e pode haver múltiplas Threads a tentar aceder à BD ao mesmo tempo
             dbMutex.WaitOne();
             try
             {
@@ -184,16 +89,26 @@ namespace ServidorCentral
                             // Se for envio de dados, guarda na tabela de histórico
                             if (comando == "DATA" && parts.Length >= 4)
                             {
+                                string tipoDado = parts[2];
+                                string valorDado = parts[3];
+
                                 string sqlInsert = "INSERT INTO Medicoes (sensor_id, tipo, valor, data_hora) VALUES (@id, @tipo, @val, @data)";
                                 using (var cmdInsert = new SqliteCommand(sqlInsert, conn))
                                 {
                                     cmdInsert.Parameters.AddWithValue("@id", sensorId);
-                                    cmdInsert.Parameters.AddWithValue("@tipo", parts[2]);
-                                    cmdInsert.Parameters.AddWithValue("@val", parts[3]);
+                                    cmdInsert.Parameters.AddWithValue("@tipo", tipoDado);
+                                    cmdInsert.Parameters.AddWithValue("@val", valorDado);
                                     cmdInsert.Parameters.AddWithValue("@data", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                                     cmdInsert.ExecuteNonQuery();
                                     Console.WriteLine($"[BD] Medição de {sensorId} guardada com sucesso.");
                                 }
+
+                                // ---------------------------------------------------------
+                                // FASE 1 TP2: CHAMADA RPC AO SERVIÇO PYTHON
+                                // ---------------------------------------------------------
+                                string analise = ChamarServicoAnaliseRPC(tipoDado, valorDado);
+                                Console.WriteLine($"[ANÁLISE EXTERNA] Risco para a Saúde: {analise}");
+                                // ---------------------------------------------------------
                             }
                         }
                         else if (estado != null)
@@ -218,6 +133,41 @@ namespace ServidorCentral
                 dbMutex.ReleaseMutex();
             }
         }
+
+        // =================================================================================
+        // NOVA FUNÇÃO: Cliente RPC para comunicar com o Python (Porta 8000)
+        // =================================================================================
+        static string ChamarServicoAnaliseRPC(string tipo, string valor)
+        {
+            try
+            {
+                // Liga-se ao Serviço Python na porta 8000 (localhost)
+                using (TcpClient rpcClient = new TcpClient("127.0.0.1", 8000))
+                using (NetworkStream stream = rpcClient.GetStream())
+                {
+                    // Formata a mensagem no protocolo RPC que definimos no Python: PREVER|TIPO|VALOR
+                    string msgRPC = $"PREVER|{tipo}|{valor}";
+                    byte[] dataOut = Encoding.UTF8.GetBytes(msgRPC);
+
+                    // Envia o pedido
+                    stream.Write(dataOut, 0, dataOut.Length);
+
+                    // Fica à espera da resposta do Python
+                    byte[] dataIn = new byte[1024];
+                    int bytesLidos = stream.Read(dataIn, 0, dataIn.Length);
+
+                    // Converte os bytes recebidos de volta para texto
+                    return Encoding.UTF8.GetString(dataIn, 0, bytesLidos);
+                }
+            }
+            catch
+            {
+                // Se o script Python no Spyder estiver desligado, o C# não vai "crashar". 
+                // Apenas devolve este aviso amigável.
+                return "[ERRO RPC] Serviço de Análise Python offline. Ligue o script no Spyder.";
+            }
+        }
+        // =================================================================================
 
         static void PrepararBD()
         {

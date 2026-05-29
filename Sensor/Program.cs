@@ -1,32 +1,34 @@
-﻿//sensor desenvolvido
-using System;
-using System.Net.Sockets;
+﻿using System;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
+using RabbitMQ.Client; // A biblioteca mágica que instalaste
 
 namespace SensorApp
 {
     class Program
     {
-        // Variáveis partilhadas
-        static TcpClient client;
-        static NetworkStream stream;
+        // Variáveis partilhadas do RabbitMQ
+        static IConnection connection;
+        static IChannel channel;
+
         static string sensorId;
-        static string tiposDados; // Guardado a nível de classe para a validação poder ler
+        static string tiposDados;
         static bool aTrabalhar = true;
 
-        // Mutex da Aula 3 para proteger o envio de dados
-        static Mutex socketMutex = new Mutex();
+        // Substituímos o Mutex pelo SemaphoreSlim (a versão segura para código Assíncrono)
+        static SemaphoreSlim publishLock = new SemaphoreSlim(1, 1);
 
-        static void Main(string[] args)
+        // ATENÇÃO: O Main agora é 'async Task' por causa do RabbitMQ v7
+        static async Task Main(string[] args)
         {
-            Console.WriteLine("=== SENSOR ONE HEALTH ===");
+            Console.WriteLine("=== SENSOR ONE HEALTH (PUB/SUB) ===");
 
-            // REQUISITO 1: Receber o IP do Gateway
-            Console.Write("IP da Gateway (ex: 127.0.0.1): ");
-            string ipGateway = Console.ReadLine();
+            // Já não precisamos do IP do Gateway, precisamos do IP do RabbitMQ!
+            Console.Write("IP do RabbitMQ (ex: localhost): ");
+            string ipRabbit = Console.ReadLine();
+            if (string.IsNullOrWhiteSpace(ipRabbit)) ipRabbit = "localhost";
 
-            // REQUISITO 2 e 3: Identificar ID e tipos de dados
             Console.Write("ID deste Sensor (ex: S101): ");
             sensorId = Console.ReadLine();
             Console.Write("Tipos de dados suportados (ex: TEMP,RUIDO): ");
@@ -34,19 +36,23 @@ namespace SensorApp
 
             try
             {
-                // REQUISITO: Estabelecer ligação
-                client = new TcpClient(ipGateway, 5000);
-                stream = client.GetStream();
-                Console.WriteLine("\n[+] Ligado à Gateway com sucesso!");
+                // 1. Criar ligação ao RabbitMQ
+                var factory = new ConnectionFactory { HostName = ipRabbit };
+                connection = await factory.CreateConnectionAsync();
+                channel = await connection.CreateChannelAsync();
 
-                // Envia o registo inicial (A nossa primeira mensagem do protocolo)
-                EnviarMensagem($"HELLO|{sensorId}|{tiposDados}");
+                // 2. Declarar o "Placard de Anúncios" (Exchange)
+                // Usamos o tipo "topic" para que a Gateway possa escolher que sensores quer ouvir
+                await channel.ExchangeDeclareAsync(exchange: "topic_sensores", type: "topic");
 
-                // REQUISITO 6: Heartbeat (Thread em segundo plano)
-                Thread threadHeartbeat = new Thread(EnviarHeartbeat);
-                threadHeartbeat.Start();
+                Console.WriteLine("\n[+] Ligado ao RabbitMQ Broker com sucesso!");
 
-                // REQUISITO 8: Interface de texto simples (Menu)
+                // Envia o registo inicial
+                await EnviarMensagem($"HELLO|{sensorId}|{tiposDados}");
+
+                // Inicia o Heartbeat em pano de fundo (usando Task em vez de Thread)
+                _ = Task.Run(EnviarHeartbeat);
+
                 while (aTrabalhar)
                 {
                     Console.WriteLine("\n-- MENU --");
@@ -61,14 +67,11 @@ namespace SensorApp
                         Console.Write("Tipo de dado (ex: TEMP): ");
                         string tipo = Console.ReadLine();
 
-                        // MELHORIA 1: Validação! Verifica se o tipo introduzido está na lista autorizada
                         if (tiposDados.Contains(tipo))
                         {
                             Console.Write("Valor (ex: 25.4): ");
                             string valor = Console.ReadLine();
-
-                            // REQUISITO 4: Enviar medições
-                            EnviarMensagem($"DATA|{sensorId}|{tipo}|{valor}");
+                            await EnviarMensagem($"DATA|{sensorId}|{tipo}|{valor}");
                         }
                         else
                         {
@@ -77,61 +80,63 @@ namespace SensorApp
                     }
                     else if (opcao == "2")
                     {
-                        // REQUISITO 5: Enviar necessidade de stream de vídeo
-                        EnviarMensagem($"VIDEO|{sensorId}|START");
+                        await EnviarMensagem($"VIDEO|{sensorId}|START");
                     }
                     else if (opcao == "0")
                     {
-                        aTrabalhar = false; // Avisa o ciclo do Menu e o ciclo do Heartbeat para pararem
-                        EnviarMensagem($"QUIT|{sensorId}");
+                        aTrabalhar = false;
+                        await EnviarMensagem($"QUIT|{sensorId}");
 
-                        Console.WriteLine("\nA encerrar o sensor em segurança. A aguardar a paragem do Heartbeat...");
-
-                        // MELHORIA 2: Espera educadamente que a Thread do Heartbeat termine antes de fechar a rede
-                        threadHeartbeat.Join();
+                        Console.WriteLine("\nA encerrar o sensor em segurança...");
+                        await Task.Delay(1000); // Dá 1 segundo para o último heartbeat cancelar
                     }
                 }
 
-                // REQUISITO 7: Terminar comunicação corretamente
-                stream.Close();
-                client.Close();
+                // Fecha a ligação graciosamente
+                await channel.CloseAsync();
+                await connection.CloseAsync();
                 Console.WriteLine("[+] Sensor desligado com sucesso.");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Erro: {ex.Message}");
+                Console.WriteLine($"Erro crítico: {ex.Message}");
             }
         }
 
-        // Função central para enviar mensagens (Protegida com Mutex!)
-        static void EnviarMensagem(string mensagem)
+        // Função de envio atualizada para atirar a mensagem para o RabbitMQ
+        static async Task EnviarMensagem(string mensagem)
         {
-            // O Mutex garante que o Heartbeat e o Menu não enviam mensagens ao mesmo exato milissegundo
-            socketMutex.WaitOne();
+            await publishLock.WaitAsync();
             try
             {
                 byte[] data = Encoding.UTF8.GetBytes(mensagem);
-                stream.Write(data, 0, data.Length);
-                Console.WriteLine($"\n[Enviado]: {mensagem}");
+
+                // Publicamos no Exchange com uma "Routing Key" (etiqueta) específica para este sensor
+                string routingKey = $"sensor.{sensorId}";
+
+                await channel.BasicPublishAsync(
+                    exchange: "topic_sensores",
+                    routingKey: routingKey,
+                    body: data,
+                    mandatory: false);
+
+                Console.WriteLine($"\n[Publicado no RabbitMQ]: {mensagem}");
             }
             finally
             {
-                socketMutex.ReleaseMutex();
+                publishLock.Release();
             }
         }
 
-        // Função que corre na Thread secundária
-        static void EnviarHeartbeat()
+        // Heartbeat adaptado para Task
+        static async Task EnviarHeartbeat()
         {
             while (aTrabalhar)
             {
-                // Espera 10 segundos
-                Thread.Sleep(10000);
-
-                // Antes de enviar o PING, confirma se o programa ainda está a trabalhar
+                await Task.Delay(10000); // Espera 10 segundos
                 if (aTrabalhar)
                 {
-                    EnviarMensagem($"PING|{sensorId}");
+                    await EnviarMensagem($"PING|{sensorId}");
                 }
             }
         }
