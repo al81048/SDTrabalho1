@@ -1,23 +1,23 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\Vitor\\source\\repos\\SDTrabalho1\\Gateway\\Gateway.csproj": {}
+    "C:\\Users\\Utilizador\\Desktop\\SD\\TP1\\Gateway\\Gateway.csproj": {}
   },
   "projects": {
-    "C:\\Users\\Vitor\\source\\repos\\SDTrabalho1\\Gateway\\Gateway.csproj": {
+    "C:\\Users\\Utilizador\\Desktop\\SD\\TP1\\Gateway\\Gateway.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\Vitor\\source\\repos\\SDTrabalho1\\Gateway\\Gateway.csproj",
+        "projectUniqueName": "C:\\Users\\Utilizador\\Desktop\\SD\\TP1\\Gateway\\Gateway.csproj",
         "projectName": "Gateway",
-        "projectPath": "C:\\Users\\Vitor\\source\\repos\\SDTrabalho1\\Gateway\\Gateway.csproj",
-        "packagesPath": "C:\\Users\\Vitor\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\Vitor\\source\\repos\\SDTrabalho1\\Gateway\\obj\\",
+        "projectPath": "C:\\Users\\Utilizador\\Desktop\\SD\\TP1\\Gateway\\Gateway.csproj",
+        "packagesPath": "C:\\Users\\Utilizador\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\Utilizador\\Desktop\\SD\\TP1\\Gateway\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
         ],
         "configFilePaths": [
-          "C:\\Users\\Vitor\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Users\\Utilizador\\AppData\\Roaming\\NuGet\\NuGet.Config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
@@ -26,14 +26,15 @@
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Program Files\\dotnet\\library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
           "net9.0": {
             "targetAlias": "net9.0",
             "projectReferences": {
-              "C:\\Users\\Vitor\\source\\repos\\SDTrabalho1\\Sensor\\Sensor.csproj": {
-                "projectPath": "C:\\Users\\Vitor\\source\\repos\\SDTrabalho1\\Sensor\\Sensor.csproj"
+              "C:\\Users\\Utilizador\\Desktop\\SD\\TP1\\Sensor\\Sensor.csproj": {
+                "projectPath": "C:\\Users\\Utilizador\\Desktop\\SD\\TP1\\Sensor\\Sensor.csproj"
               }
             }
           }
@@ -48,7 +49,7 @@
           "auditLevel": "low",
           "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "10.0.200"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0": {
@@ -69,24 +70,24 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.201/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.313/PortableRuntimeIdentifierGraph.json"
         }
       }
     },
-    "C:\\Users\\Vitor\\source\\repos\\SDTrabalho1\\Sensor\\Sensor.csproj": {
+    "C:\\Users\\Utilizador\\Desktop\\SD\\TP1\\Sensor\\Sensor.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\Vitor\\source\\repos\\SDTrabalho1\\Sensor\\Sensor.csproj",
+        "projectUniqueName": "C:\\Users\\Utilizador\\Desktop\\SD\\TP1\\Sensor\\Sensor.csproj",
         "projectName": "Sensor",
-        "projectPath": "C:\\Users\\Vitor\\source\\repos\\SDTrabalho1\\Sensor\\Sensor.csproj",
-        "packagesPath": "C:\\Users\\Vitor\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\Vitor\\source\\repos\\SDTrabalho1\\Sensor\\obj\\",
+        "projectPath": "C:\\Users\\Utilizador\\Desktop\\SD\\TP1\\Sensor\\Sensor.csproj",
+        "packagesPath": "C:\\Users\\Utilizador\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\Utilizador\\Desktop\\SD\\TP1\\Sensor\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
         ],
         "configFilePaths": [
-          "C:\\Users\\Vitor\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Users\\Utilizador\\AppData\\Roaming\\NuGet\\NuGet.Config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
@@ -95,6 +96,7 @@
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+          "C:\\Program Files\\dotnet\\library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -113,7 +115,7 @@
           "auditLevel": "low",
           "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "10.0.200"
+        "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
         "net9.0": {
@@ -134,7 +136,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.201/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.313/PortableRuntimeIdentifierGraph.json"
         }
       }
     }
