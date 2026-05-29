@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "M48AircfNFE=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\Utilizador\\Desktop\\SD\\TP1\\Gateway\\Gateway.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Utilizador\\.nuget\\packages\\rabbitmq.client\\7.2.1\\rabbitmq.client.7.2.1.nupkg.sha512",
+    "C:\\Users\\Utilizador\\.nuget\\packages\\system.io.pipelines\\8.0.0\\system.io.pipelines.8.0.0.nupkg.sha512",
+    "C:\\Users\\Utilizador\\.nuget\\packages\\system.threading.ratelimiting\\8.0.0\\system.threading.ratelimiting.8.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}

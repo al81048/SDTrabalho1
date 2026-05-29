@@ -1,236 +1,89 @@
-﻿/*
-//aspeto do gateway usando ficheiro csv
-using System;
-using System.IO;
-using System.Net;
+﻿using System;
 using System.Net.Sockets;
 using System.Text;
-using System.Threading;
-using System.Collections.Generic;
+using System.Threading.Tasks; // Adicionado para suportar Task/Async
+using RabbitMQ.Client; // Biblioteca do RabbitMQ
+using RabbitMQ.Client.Events; // Adicionado para os eventos do Consumidor
 
 namespace GatewayApp
 {
     class Program
     {
-        // Mutex para proteger a leitura e escrita no ficheiro config.csv (Aula 3)
-        private static Mutex csvMutex = new Mutex();
-
-        // Caminho do ficheiro (Lembra-te da nota importante abaixo sobre a entrega!)
-        private static string csvPath = @"C:\Users\Utilizador\Desktop\config.csv";
-
         private static string serverIP = "127.0.0.1";
         private static int serverPort = 9000;
 
-        static void Main(string[] args)
+        // O Main agora é 'async Task' para suportar a biblioteca moderna do RabbitMQ v7
+        static async Task Main(string[] args)
         {
-            Console.WriteLine("=== GATEWAY ONE HEALTH ===");
-
-            // Inicia o servidor para ouvir Sensores na porta 5000 (Aula 2)
-            TcpListener listener = new TcpListener(IPAddress.Any, 5000);
-            listener.Start();
-            Console.WriteLine("[+] Gateway à escuta de Sensores na porta 5000...");
-
-            while (true)
-            {
-                // Aceita nova conexão de um Sensor e cria uma Thread para não bloquear (Aula 3)
-                TcpClient sensorClient = listener.AcceptTcpClient();
-                Console.WriteLine($"\n[Nova Conexão] Sensor detetado: {sensorClient.Client.RemoteEndPoint}");
-
-                Thread t = new Thread(() => HandleSensor(sensorClient));
-                t.Start();
-            }
-        }
-
-        static void HandleSensor(TcpClient sensorClient)
-        {
-            NetworkStream sensorStream = sensorClient.GetStream();
-            byte[] buffer = new byte[1024];
+            Console.WriteLine("=== GATEWAY ONE HEALTH (PUB/SUB PROXY) ===");
 
             try
             {
-                while (true)
+                // 1. Configurar e ligar ao RabbitMQ Broker no Docker
+                var factory = new ConnectionFactory { HostName = "127.0.0.1" };
+                using var connection = await factory.CreateConnectionAsync();
+                using var channel = await connection.CreateChannelAsync();
+
+                // 2. Garantir que o "Placard" (Exchange) do tipo Topic existe
+                await channel.ExchangeDeclareAsync(exchange: "topic_sensores", type: "topic");
+
+                // 3. Criar uma fila exclusiva e automática para esta Gateway
+                var queueDeclareResult = await channel.QueueDeclareAsync(queue: "", durable: false, exclusive: true, autoDelete: true);
+                string queueName = queueDeclareResult.QueueName;
+
+                // 4. Efetuar o "Bind" via código: Ouvir todas as mensagens que comecem por "sensor."
+                await channel.QueueBindAsync(queue: queueName, exchange: "topic_sensores", routingKey: "sensor.#");
+
+                Console.WriteLine("[+] Gateway ligada ao RabbitMQ com sucesso!");
+                Console.WriteLine("[+] À escuta de mensagens dos Sensores... (Pressione Ctrl+C para sair)");
+
+                // 5. Configurar o mecanismo de escuta ativa (Consumidor Assíncrono)
+                var consumer = new AsyncEventingBasicConsumer(channel);
+
+                consumer.ReceivedAsync += async (model, ea) =>
                 {
-                    int bytesRead = sensorStream.Read(buffer, 0, buffer.Length);
-                    if (bytesRead == 0) break;
+                    // Desempacota os bytes recebidos do RabbitMQ para string
+                    byte[] body = ea.Body.ToArray();
+                    string msgRecebida = Encoding.UTF8.GetString(body);
+                    Console.WriteLine($"\n[RabbitMQ -> Gateway]: {msgRecebida}");
 
-                    string msg = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    Console.WriteLine($"[Sensor -> Gateway]: {msg}");
+                    // ---------------------------------------------------------
+                    // FASE 1 TP2: INTERCEPTAR E PRÉ-PROCESSAR DADOS (RPC)
+                    // ---------------------------------------------------------
+                    string[] parts = msgRecebida.Split('|');
 
-                    // Protocolo: TIPO|ID|RESTO...
-                    string[] parts = msg.Split('|');
-
-                    // Proteção: Só processa se a mensagem tiver pelo menos TIPO e ID
-                    if (parts.Length >= 2)
+                    // Se for uma medição (DATA), fazemos a limpeza no Python antes de enviar
+                    if (parts.Length >= 4 && parts[0] == "DATA")
                     {
-                        string comando = parts[0];
                         string sensorId = parts[1];
+                        string tipo = parts[2];
+                        string valorBruto = parts[3];
 
-                        // 1. Validar Sensor no ficheiro CSV
-                        if (ValidarEAtualizarSensor(sensorId))
-                        {
-                            // 2. Se for uma medição (DATA), encaminha para o Servidor Principal
-                            if (comando == "DATA")
-                            {
-                                EncaminharParaServidor(msg);
-                            }
-                        }
+                        // Manda limpar para o serviço Python (Porta 8001)
+                        string valorLimpo = ChamarPreProcessamentoRPC(tipo, valorBruto);
+
+                        // Reconstrói a mensagem para enviar para o Servidor Central (agora com o valor formatado)
+                        msgRecebida = $"DATA|{sensorId}|{tipo}|{valorLimpo}";
+
+                        Console.WriteLine($"[RPC Pré-Processamento] Valor convertido: {valorBruto} -> {valorLimpo}");
                     }
-                    else
-                    {
-                        Console.WriteLine("[AVISO] Mensagem ignorada (formato inválido).");
-                    }
-                }
+                    // ---------------------------------------------------------
+
+                    // Encaminha a mensagem (limpa ou original) para o Servidor Central via TCP (Porta 9000)
+                    EncaminharParaServidor(msgRecebida);
+
+                    await Task.CompletedTask;
+                };
+
+                // Inicia o consumo efetivo da fila
+                await channel.BasicConsumeAsync(queue: queueName, autoAck: true, consumer: consumer);
+
+                // Bloqueia a aplicação para que a Gateway continue permanentemente acordada à escuta
+                await Task.Delay(-1);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Erro na ligação com o Sensor: {ex.Message}");
-            }
-            finally
-            {
-                sensorClient.Close();
-            }
-        }
-
-        static bool ValidarEAtualizarSensor(string id)
-        {
-            bool sensorValido = false;
-
-            // Bloqueia o acesso ao ficheiro para outras Threads (Aula 3)
-            csvMutex.WaitOne();
-            try
-            {
-                if (!File.Exists(csvPath))
-                {
-                    Console.WriteLine($"[ERRO CRÍTICO] O ficheiro {csvPath} não foi encontrado na pasta!");
-                    return false;
-                }
-
-                string[] linhas = File.ReadAllLines(csvPath);
-                List<string> novasLinhas = new List<string>();
-
-                foreach (string linha in linhas)
-                {
-                    // A NOSSA GRANDE ALTERAÇÃO: O limite de 5 partes salva a data de ser cortada!
-                    string[] campos = linha.Split(':', 5);
-
-                    if (campos.Length >= 5 && campos[0] == id)
-                    {
-                        if (campos[1] == "ativo") // O sensor existe e está ativo
-                        {
-                            sensorValido = true;
-                            // Atualiza a data do último heartbeat (last_sync)
-                            campos[4] = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
-                        }
-                        // Reconstrói a linha com a data atualizada
-                        novasLinhas.Add(string.Join(":", campos));
-                    }
-                    else
-                    {
-                        novasLinhas.Add(linha);
-                    }
-                }
-
-                // Se o sensor for válido, reescreve o ficheiro todo com a nova data
-                if (sensorValido)
-                {
-                    File.WriteAllLines(csvPath, novasLinhas);
-                }
-                else
-                {
-                    Console.WriteLine($"[AVISO] Sensor {id} rejeitado (Inexistente ou Inativo no CSV).");
-                }
-            }
-            finally
-            {
-                // Liberta sempre o ficheiro, mesmo que dê erro pelo meio
-                csvMutex.ReleaseMutex();
-            }
-
-            return sensorValido;
-        }
-
-        static void EncaminharParaServidor(string mensagem)
-        {
-            try
-            {
-                using (TcpClient serverClient = new TcpClient(serverIP, serverPort))
-                using (NetworkStream serverStream = serverClient.GetStream())
-                {
-                    byte[] data = Encoding.UTF8.GetBytes(mensagem);
-                    serverStream.Write(data, 0, data.Length);
-                    Console.WriteLine("[Gateway -> Servidor]: Encaminhado com sucesso.");
-                }
-            }
-            catch
-            {
-                Console.WriteLine("[ERRO] Não foi possível ligar ao Servidor Principal na porta 9000.");
-            }
-        }
-    }
-}*/
-
-//gateway quando se implementa a base de dados
-using System;
-using System.Net;
-using System.Net.Sockets;
-using System.Text;
-using System.Threading;
-
-namespace GatewayApp
-{
-    class Program
-    {
-        private static string serverIP = "127.0.0.1";
-        private static int serverPort = 9000;
-
-        static void Main(string[] args)
-        {
-            Console.WriteLine("=== GATEWAY ONE HEALTH (PROXY) ===");
-
-            // Inicia o servidor para ouvir Sensores na porta 5000
-            TcpListener listener = new TcpListener(IPAddress.Any, 5000);
-            listener.Start();
-            Console.WriteLine("[+] Gateway à escuta de Sensores na porta 5000...");
-
-            while (true)
-            {
-                // Aceita nova conexão de um Sensor e cria uma Thread
-                TcpClient sensorClient = listener.AcceptTcpClient();
-                Console.WriteLine($"\n[Nova Conexão] Sensor detetado: {sensorClient.Client.RemoteEndPoint}");
-
-                Thread t = new Thread(() => HandleSensor(sensorClient));
-                t.Start();
-            }
-        }
-
-        static void HandleSensor(TcpClient sensorClient)
-        {
-            NetworkStream sensorStream = sensorClient.GetStream();
-            byte[] buffer = new byte[1024];
-
-            try
-            {
-                while (true)
-                {
-                    int bytesRead = sensorStream.Read(buffer, 0, buffer.Length);
-                    if (bytesRead == 0) break; // Sensor desligou-se
-
-                    string msg = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    Console.WriteLine($"[Sensor -> Gateway]: {msg}");
-
-                    // A MAGIA DO PROXY: Já não há validação por CSV aqui!
-                    // Tudo (HELLO, DATA, PING, VIDEO) é imediatamente enviado ao Servidor.
-                    EncaminharParaServidor(msg);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Erro na ligação com o Sensor: {ex.Message}");
-            }
-            finally
-            {
-                sensorClient.Close();
-                Console.WriteLine("[Desconexão] Um sensor desligou-se.");
+                Console.WriteLine($"Erro crítico na Gateway: {ex.Message}");
             }
         }
 
@@ -250,6 +103,33 @@ namespace GatewayApp
             catch
             {
                 Console.WriteLine("[ERRO] Não foi possível ligar ao Servidor Principal na porta 9000. O Servidor está a correr?");
+            }
+        }
+
+        // =================================================================================
+        // FUNÇÃO FASE 1 TP2: Chamar Serviço de Limpeza Python na Porta 8001
+        // =================================================================================
+        static string ChamarPreProcessamentoRPC(string tipo, string valor)
+        {
+            try
+            {
+                using (TcpClient rpcClient = new TcpClient("127.0.0.1", 8001))
+                using (NetworkStream stream = rpcClient.GetStream())
+                {
+                    string msgRPC = $"CLEAN|{tipo}|{valor}";
+                    byte[] dataOut = Encoding.UTF8.GetBytes(msgRPC);
+                    stream.Write(dataOut, 0, dataOut.Length);
+
+                    byte[] dataIn = new byte[1024];
+                    int bytesLidos = stream.Read(dataIn, 0, dataIn.Length);
+                    return Encoding.UTF8.GetString(dataIn, 0, bytesLidos);
+                }
+            }
+            catch
+            {
+                // Se o Python na porta 8001 falhar/estiver desligado, devolve o valor original 
+                // para não bloquear o funcionamento do sistema
+                return valor;
             }
         }
     }
