@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Data.SQLite; // Necessário pacote NuGet: System.Data.SQLite
+using System.IO; // NECESSÁRIO PARA LER OS CAMINHOS DO SISTEMA
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -9,7 +10,15 @@ namespace ServidorCentralApp
 {
     class Program
     {
-        static string connectionString = "Data Source=onehealth.db;Version=3;";
+        // 1. Descobre a pasta Desktop dinamicamente (funciona no teu PC e no do professor)
+        static string caminhoDesktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+
+        // 2. Constrói o caminho completo para o ficheiro
+        static string caminhoBaseDados = Path.Combine(caminhoDesktop, "onehealth.db");
+
+        // 3. String de ligação à prova de bala
+        static string connectionString = $"Data Source={caminhoBaseDados};Version=3;";
+
         static Mutex dbMutex = new Mutex(); // Protege a base de dados contra escritas/leituras simultâneas
 
         static void Main(string[] args)
@@ -36,7 +45,6 @@ namespace ServidorCentralApp
             // ====================================================================
             // FASE 3: INTERFACE DE VISUALIZAÇÃO E EXPLORAÇÃO DE DADOS (CLI)
             // ====================================================================
-            // Pequeno atraso só para o menu não se misturar com as mensagens de arranque
             Thread.Sleep(500);
 
             while (true)
@@ -45,6 +53,7 @@ namespace ServidorCentralApp
                 Console.WriteLine("1. Ver Todas as Medições (Últimas 20)");
                 Console.WriteLine("2. Pesquisar por ID do Sensor (ex: S101)");
                 Console.WriteLine("3. Pesquisar por Tipo de Dado (ex: TEMP)");
+                Console.WriteLine("4. Pedir Nova Análise Manualmente (Simulador)"); // NOVA OPÇÃO DO PROTOCOLO
                 Console.WriteLine("0. Sair");
                 Console.Write("Opção: ");
 
@@ -65,6 +74,24 @@ namespace ServidorCentralApp
                     Console.Write("Introduza o Tipo de Dado: ");
                     string tipo = Console.ReadLine();
                     ConsultarBaseDados($"SELECT * FROM Medicoes WHERE Tipo = '{tipo}' ORDER BY DataHora DESC LIMIT 20");
+                }
+                else if (opcao == "4")
+                {
+                    // Cumprimento do requisito do protocolo: desencadear análise manual parametrizada
+                    Console.Write("Introduza o Tipo de Dado a analisar (ex: TEMP): ");
+                    string tipo = Console.ReadLine();
+                    Console.Write("Introduza o Valor (ex: 45): ");
+                    string valor = Console.ReadLine();
+
+                    Console.WriteLine("\n[A contactar o motor de IA Python via RPC...]");
+                    string analise = ChamarAnaliseRPC(tipo, valor);
+                    Console.WriteLine($"[RESULTADO DA PREVISÃO]: {analise}");
+
+                    Console.Write("Deseja guardar este cenário na Base de Dados? (s/n): ");
+                    if (Console.ReadLine().ToLower() == "s")
+                    {
+                        GuardarMedicaoBD("MANUAL", tipo, valor, analise);
+                    }
                 }
                 else if (opcao == "0")
                 {
@@ -98,15 +125,10 @@ namespace ServidorCentralApp
                         string tipo = parts[2];
                         string valor = parts[3];
 
-                        // 1. Chama Python (Porta 8000) para Análise de Risco
                         string analise = ChamarAnaliseRPC(tipo, valor);
-
-                        // 2. Guarda na Base de Dados SQLite
                         GuardarMedicaoBD(sensorId, tipo, valor, analise);
 
                         Console.WriteLine($"[ANÁLISE EXTERNA] Risco para a Saúde: {analise}");
-
-                        // Re-imprime a indicação do menu para o utilizador não se perder
                         Console.Write("\nPressione ENTER para voltar ao menu ou introduza uma opção: ");
                     }
                 }
@@ -134,7 +156,7 @@ namespace ServidorCentralApp
                         cmd.ExecuteNonQuery();
                     }
                 }
-                Console.WriteLine("[BD] Base de dados central verificada/pronta a usar.");
+                Console.WriteLine($"[BD] Pronta a usar em: {caminhoBaseDados}");
             }
             catch (Exception ex)
             {
@@ -172,9 +194,6 @@ namespace ServidorCentralApp
             }
         }
 
-        // ====================================================================
-        // FUNÇÃO DE LEITURA DA FASE 3 (Apresenta os dados em formato de Tabela)
-        // ====================================================================
         static void ConsultarBaseDados(string query)
         {
             dbMutex.WaitOne();

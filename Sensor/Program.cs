@@ -72,7 +72,27 @@ namespace SensorApp
                     }
                     else if (opcao == "2")
                     {
-                        await EnviarMensagem($"VIDEO|{sensorId}|START");
+                        Console.WriteLine("\n[EDGE COMPUTING] A ligar câmara e a iniciar análise local com IA...");
+
+                        // Simula o tempo de processamento de imagem na "borda" (2.5 segundos)
+                        await Task.Delay(2500);
+
+                        // Eventos alinhados com o conceito "One Health" (Saúde Única urbana)
+                        string[] eventos = {
+                            "ALERTA_INCENDIO_FUMO",
+                            "ALERTA_AJUNTAMENTO_ANORMAL",
+                            "PESSOA_CAIDA_RUA",
+                            "FLUXO_NORMAL_SEM_RISCO"
+                    };
+
+                        // O "Modelo de IA" escolhe um evento aleatório baseado no vídeo
+                        Random rnd = new Random();
+                        string eventoDetetado = eventos[rnd.Next(eventos.Length)];
+
+                        Console.WriteLine($"[CÂMARA] Processamento de frames concluído. Extração: {eventoDetetado}");
+
+                        // O Sensor atira apenas o ALERTA em texto (Metadados) para o RabbitMQ
+                        await EnviarMensagem($"DATA|{sensorId}|CAMERA|{eventoDetetado}");
                     }
                     else if (opcao == "0")
                     {
